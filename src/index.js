@@ -16,14 +16,29 @@ app.get("/db-test", async (req, res) => {
   }
 });
 
-// step 1 credit api
 app.post("/v1/wallets/:playerId/credit", async (req, res) => {
-     const { playerId } = req.params;
-     const { amount ,reason} = req.body;
-
-     try {
+  try {
     const { playerId } = req.params;
     const { amount, reason } = req.body;
+
+    const idempotencyKey = req.headers["idempotency-key"];
+
+    if (!idempotencyKey) {
+      return res.status(400).json({
+        message: "Idempotency-Key header is required"
+      });
+    }
+
+    const existingKey = await pool.query(
+      "SELECT * FROM idempotency_keys WHERE id = $1",
+      [idempotencyKey]
+    );
+
+    if (existingKey.rows.length > 0) {
+      return res.status(409).json({
+        message: "Request already processed"
+      });
+    }
 
     const result = await pool.query(
       `UPDATE wallets
@@ -31,6 +46,11 @@ app.post("/v1/wallets/:playerId/credit", async (req, res) => {
        WHERE player_id = $2
        RETURNING *`,
       [amount, playerId]
+    );
+
+    await pool.query(
+      "INSERT INTO idempotency_keys (id) VALUES ($1)",
+      [idempotencyKey]
     );
 
     res.json({
@@ -131,6 +151,37 @@ app.post("/v1/wallets/:playerId/purchase", async (req, res) => {
     });
   } finally {
     client.release();
+  }
+});
+
+app.post("/v1/rewards/:rewardId/claim", async (req, res) => {
+  try {
+    const { rewardId } = req.params;
+    const { playerId } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO reward_claims (player_id, reward_id)
+       VALUES ($1, $2)
+       RETURNING *`,
+      [playerId, rewardId]
+    );
+
+    res.json({
+      message: "Reward claimed successfully",
+      reward: result.rows[0]
+    });
+
+  } catch (error) {
+
+    if (error.code === "23505") {
+      return res.status(400).json({
+        message: "Reward already claimed"
+      });
+    }
+
+    res.status(500).json({
+      error: error.message
+    });
   }
 });
 const PORT = 3000;
