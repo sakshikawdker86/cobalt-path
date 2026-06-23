@@ -16,6 +16,35 @@ app.get("/db-test", async (req, res) => {
   }
 });
 
+// step 1 credit api
+app.post("/v1/wallets/:playerId/credit", async (req, res) => {
+     const { playerId } = req.params;
+     const { amount ,reason} = req.body;
+
+     try {
+    const { playerId } = req.params;
+    const { amount, reason } = req.body;
+
+    const result = await pool.query(
+      `UPDATE wallets
+       SET balance = balance + $1
+       WHERE player_id = $2
+       RETURNING *`,
+      [amount, playerId]
+    );
+
+    res.json({
+      message: "Wallet credited",
+      wallet: result.rows[0]
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
 const PORT = 3000;
 
 app.listen(PORT, () => {
