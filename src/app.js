@@ -142,23 +142,27 @@ app.post("/v1/wallets/:playerId/purchase", async (req, res) => {
       });
     }
 
-    const balance = walletResult.rows[0].balance;
-
-    //balance should be greater than price
-    if (balance < price) {
-      return res.status(400).json({
-        message: "Insufficient balance"
-      });
-    }
+   
     // Execute all purchase operations atomically
     await client.query("BEGIN");
 
-    await client.query(
+    //Concurrency control shift in db
+    const updateResult = await client.query(
       `UPDATE wallets
-       SET balance = balance - $1
-       WHERE player_id = $2`,
+      SET balance = balance - $1
+      WHERE player_id = $2
+      AND balance >= $1
+      RETURNING *`,
       [price, playerId]
     );
+
+    if (updateResult.rows.length === 0) {
+  await client.query("ROLLBACK");
+
+  return res.status(400).json({
+    message: "Insufficient balance"
+  });
+}
 
     await client.query(
       `INSERT INTO inventory (player_id, item_id)
@@ -179,6 +183,7 @@ app.post("/v1/wallets/:playerId/purchase", async (req, res) => {
     });
 
   } catch (error) {
+    console.log(error);
     await client.query("ROLLBACK");
 
     res.status(500).json({
