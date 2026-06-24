@@ -5,6 +5,8 @@ describe("Wallet Api", ()=>{
      test("should return 404 for non existing player", async () => {
     const response = await request(app)
       .get("/v1/wallets/player999");
+      console.log("STATUS:", response.statusCode);
+console.log("BODY:", response.body);
 
     expect(response.statusCode).toBe(404);
   });
