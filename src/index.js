@@ -18,8 +18,17 @@ app.get("/db-test", async (req, res) => {
 
 app.post("/v1/wallets/:playerId/credit", async (req, res) => {
   try {
+    console.log(req.headers);
+    console.log(req.body);
     const { playerId } = req.params;
     const { amount, reason } = req.body;
+
+    //Validate credit amount
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        message: "Amount must be greater than 0"
+      });
+    }
 
     const idempotencyKey = req.headers["idempotency-key"];
 
@@ -33,19 +42,35 @@ app.post("/v1/wallets/:playerId/credit", async (req, res) => {
       "SELECT * FROM idempotency_keys WHERE id = $1",
       [idempotencyKey]
     );
-
+    //Prevent duplicate credits using idempotency key
     if (existingKey.rows.length > 0) {
       return res.status(409).json({
         message: "Request already processed"
       });
     }
 
+    /*
+    i only have player 1, so i am updating the balance of player 1, if you have more players 
+    this will not work other players are not present
     const result = await pool.query(
       `UPDATE wallets
        SET balance = balance + $1
        WHERE player_id = $2
        RETURNING *`,
       [amount, playerId]
+    );
+    */
+
+
+    // if i want to insert more players i will insert them and then update their balance
+    const result = await pool.query(
+       `INSERT INTO wallets (player_id, balance)
+       VALUES ($1, $2)
+       ON CONFLICT (player_id)
+       DO UPDATE
+       SET balance = wallets.balance + EXCLUDED.balance
+       RETURNING *`,
+      [playerId, amount]
     );
 
     await pool.query(
@@ -59,6 +84,7 @@ app.post("/v1/wallets/:playerId/credit", async (req, res) => {
     });
 
   } catch (error) {
+    console.log(error);
     res.status(500).json({
       error: error.message
     });
@@ -68,12 +94,13 @@ app.post("/v1/wallets/:playerId/credit", async (req, res) => {
 app.get("/v1/wallets/:playerId", async (req, res) => {
   try {
     const { playerId } = req.params;
-
     const result = await pool.query(
       "SELECT * FROM wallets WHERE player_id = $1",
       [playerId]
     );
-
+    console.log("Query Result:", result.rows);
+    
+     
     if (result.rows.length === 0) {
       return res.status(404).json({
         message: "Player not found"
@@ -97,6 +124,13 @@ app.post("/v1/wallets/:playerId/purchase", async (req, res) => {
     const { playerId } = req.params;
     const { itemId, price } = req.body;
 
+    //Negetive Price not allowed
+    if (!price || price <= 0) {
+      return res.status(400).json({
+        message: "Price must be greater than 0"
+      });
+    }
+
     const walletResult = await client.query(
       "SELECT balance FROM wallets WHERE player_id = $1",
       [playerId]
@@ -110,12 +144,13 @@ app.post("/v1/wallets/:playerId/purchase", async (req, res) => {
 
     const balance = walletResult.rows[0].balance;
 
+    //balance should be greater than price
     if (balance < price) {
       return res.status(400).json({
         message: "Insufficient balance"
       });
     }
-
+    // Execute all purchase operations atomically
     await client.query("BEGIN");
 
     await client.query(
