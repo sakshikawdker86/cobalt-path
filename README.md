@@ -352,7 +352,11 @@ Duplicate reward clams are prevented using a unique constraint.
 Credit requests support idempotency through the Idempotency-Key header.
 For simplicity, item prices are currently supplied in the purchase request. In a production 
 environment, prices would typically be manages server-side through an 
-item catalog.
+item catalog. Before running the application, execute the schema file located at: 
+
+src/sql/schema.sql
+
+This creates the required database table
 
 ## Additional Testing
 
